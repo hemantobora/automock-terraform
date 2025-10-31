@@ -40,7 +40,7 @@ resource "aws_acm_certificate" "automock" {
 # ALB Listeners
 ##############################
 
-# Always redirect HTTP :80 -> HTTPS :443
+# Always redirect HTTP :80 -> HTTP :80
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80

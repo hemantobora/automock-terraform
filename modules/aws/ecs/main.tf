@@ -76,6 +76,65 @@ locals {
 }
 
 ##############################################
+# BYO subnet type detection (public vs private)
+# - We keep variable names as-is (public_/private_), but
+#   in BYO mode we infer if provided "private_subnet_ids"
+#   actually point to public subnets (IGW route or map_public_ip_on_launch)
+# - This allows us to make sane choices like assign_public_ip
+#   without forcing strict naming semantics on callers.
+##############################################
+
+# Only queried when we have subnets to inspect
+data "aws_subnet" "ecs_effective" {
+  count = length(local.private_subnet_ids_resolved)
+  id    = local.private_subnet_ids_resolved[count.index]
+}
+
+# Find the route table associated with each provided subnet
+data "aws_route_table" "ecs_effective" {
+  count = length(local.private_subnet_ids_resolved)
+  filter {
+    name   = "association.subnet-id"
+    values = [local.private_subnet_ids_resolved[count.index]]
+  }
+}
+
+locals {
+  # For each subnet, detect if it is effectively "public":
+  # - Has a default route (0.0.0.0/0) to an Internet Gateway (igw-*)
+  #   OR
+  # - Has map_public_ip_on_launch enabled
+  ecs_is_public_per_subnet = [
+    for i in range(length(local.private_subnet_ids_resolved)) : (
+      contains([
+        for r in try(data.aws_route_table.ecs_effective[i].routes, []) :
+        (try(r.destination_cidr_block, "") == "0.0.0.0/0" && can(regex("^igw-", try(r.gateway_id, ""))))
+      ], true)
+      ||
+      try(data.aws_subnet.ecs_effective[i].map_public_ip_on_launch, false)
+    )
+  ]
+
+  # True if any of the provided subnets is public (BYO case tolerant)
+  ecs_any_public_subnet = contains(local.ecs_is_public_per_subnet, true)
+}
+
+##############################################
+# NAT creation policy (respect BYO realities)
+# - Keep exactly ONE NAT when we create networking
+# - In BYO subnets mode:
+#     * If any provided "private" subnet is actually public, do NOT create NAT
+#     * If all are private, create ONE NAT (requires at least one public subnet to place it)
+##############################################
+locals {
+  create_nat_effective = local.create_nat && (
+    var.use_existing_subnets
+      ? (!local.ecs_any_public_subnet && length(local.public_subnet_ids_resolved) > 0)
+      : true
+  )
+}
+
+##############################################
 # Random suffix (for unique names when needed)
 ##############################################
 resource "random_id" "suffix" {
@@ -172,7 +231,7 @@ resource "aws_subnet" "private" {
 
 # Single NAT (cost-optimized)
 resource "aws_eip" "nat" {
-  count = local.create_nat ? 1 : 0
+  count = local.create_nat_effective ? 1 : 0
 
   domain     = "vpc"
   depends_on = [aws_internet_gateway.main]
@@ -183,10 +242,11 @@ resource "aws_eip" "nat" {
 }
 
 resource "aws_nat_gateway" "main" {
-  count = local.create_nat ? 1 : 0
+  count = local.create_nat_effective ? 1 : 0
 
   allocation_id = aws_eip.nat[0].id
-  subnet_id     = aws_subnet.public[0].id
+  # NAT GW must reside in a PUBLIC subnet
+  subnet_id     = var.use_existing_subnets ? local.public_subnet_ids_resolved[0] : aws_subnet.public[0].id
   depends_on    = [aws_internet_gateway.main]
 
   tags = merge(local.common_tags, {
