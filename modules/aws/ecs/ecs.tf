@@ -394,11 +394,7 @@ resource "aws_ecs_service" "mockserver" {
   network_configuration {
     subnets          = local.private_subnet_ids_resolved
     security_groups  = local.ecs_security_group_ids_resolved
-    # Governance-friendly behavior:
-    # - Module-created networking: explicitly keep tasks private (false)
-    # - BYO networking: do NOT set this field (null) so external policy/controllers
-    #   can manage it without Terraform attempting updates.
-    assign_public_ip = var.use_existing_subnets ? null : false
+    assign_public_ip = var.use_existing_subnets ? true : false
   }
 
   load_balancer {
@@ -428,13 +424,6 @@ resource "aws_ecs_service" "mockserver" {
   depends_on = [
     aws_lb_listener.https_api
   ]
-
-  lifecycle {
-    # Avoid updating the service when external governance toggles assign_public_ip.
-    ignore_changes = [
-      network_configuration[0].assign_public_ip
-    ]
-  }
 }
 
 # Auto-Scaling Target
