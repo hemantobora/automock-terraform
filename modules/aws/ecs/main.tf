@@ -84,28 +84,25 @@ locals {
 #   without forcing strict naming semantics on callers.
 ##############################################
 
-# Only queried when we have subnets to inspect
+# Only query when caller supplied subnets (inputs-known at plan/destroy)
 data "aws_subnet" "ecs_effective" {
-  count = length(local.private_subnet_ids_resolved)
-  id    = local.private_subnet_ids_resolved[count.index]
+  count = var.use_existing_subnets ? length(var.private_subnet_ids) : 0
+  id    = var.private_subnet_ids[count.index]
 }
 
-# Find the route table associated with each provided subnet
+# Route table associated with each provided subnet (BYO only)
 data "aws_route_table" "ecs_effective" {
-  count = length(local.private_subnet_ids_resolved)
+  count = var.use_existing_subnets ? length(var.private_subnet_ids) : 0
   filter {
     name   = "association.subnet-id"
-    values = [local.private_subnet_ids_resolved[count.index]]
+    values = [var.private_subnet_ids[count.index]]
   }
 }
 
 locals {
-  # For each subnet, detect if it is effectively "public":
-  # - Has a default route (0.0.0.0/0) to an Internet Gateway (igw-*)
-  #   OR
-  # - Has map_public_ip_on_launch enabled
-  ecs_is_public_per_subnet = [
-    for i in range(length(local.private_subnet_ids_resolved)) : (
+  # Compute only in BYO mode; otherwise empty/false to avoid unknowns
+  ecs_is_public_per_subnet = var.use_existing_subnets ? [
+    for i in range(length(var.private_subnet_ids)) : (
       contains([
         for r in try(data.aws_route_table.ecs_effective[i].routes, []) :
         (try(r.destination_cidr_block, "") == "0.0.0.0/0" && can(regex("^igw-", try(r.gateway_id, ""))))
@@ -113,10 +110,9 @@ locals {
       ||
       try(data.aws_subnet.ecs_effective[i].map_public_ip_on_launch, false)
     )
-  ]
+  ] : []
 
-  # True if any of the provided subnets is public (BYO case tolerant)
-  ecs_any_public_subnet = contains(local.ecs_is_public_per_subnet, true)
+  ecs_any_public_subnet = var.use_existing_subnets ? contains(local.ecs_is_public_per_subnet, true) : false
 }
 
 ##############################################
