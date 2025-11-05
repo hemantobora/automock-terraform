@@ -90,8 +90,10 @@ data "aws_subnet" "ecs_effective" {
   id    = var.private_subnet_ids[count.index]
 }
 
-# Route table associated with each provided subnet (BYO only)
-data "aws_route_table" "ecs_effective" {
+# Route table lookup with fallback for subnets using VPC main route table (BYO only)
+
+# 1) Try explicit association for each subnet (may return zero results)
+data "aws_route_tables" "by_subnet" {
   count = var.use_existing_subnets ? length(var.private_subnet_ids) : 0
   filter {
     name   = "association.subnet-id"
@@ -99,12 +101,42 @@ data "aws_route_table" "ecs_effective" {
   }
 }
 
+# 2) Fall back to the VPC's main route table for the subnet's VPC
+data "aws_route_tables" "main_by_vpc" {
+  count = var.use_existing_subnets ? length(var.private_subnet_ids) : 0
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_subnet.ecs_effective[count.index].vpc_id]
+  }
+  filter {
+    name   = "association.main"
+    values = ["true"]
+  }
+}
+
+locals {
+  # Pick the explicitly associated table if present; otherwise the VPC main
+  ecs_effective_rt_ids = var.use_existing_subnets ? [
+    for i in range(length(var.private_subnet_ids)) : (
+      length(try(data.aws_route_tables.by_subnet[i].ids, [])) > 0
+        ? data.aws_route_tables.by_subnet[i].ids[0]
+        : data.aws_route_tables.main_by_vpc[i].ids[0]
+    )
+  ] : []
+}
+
+# 3) Fetch the final route tables by ID for route inspection
+data "aws_route_table" "ecs_resolved" {
+  count          = var.use_existing_subnets ? length(local.ecs_effective_rt_ids) : 0
+  route_table_id = local.ecs_effective_rt_ids[count.index]
+}
+
 locals {
   # Compute only in BYO mode; otherwise empty/false to avoid unknowns
   ecs_is_public_per_subnet = var.use_existing_subnets ? [
     for i in range(length(var.private_subnet_ids)) : (
       contains([
-        for r in try(data.aws_route_table.ecs_effective[i].routes, []) :
+        for r in try(data.aws_route_table.ecs_resolved[i].routes, []) :
         (try(r.destination_cidr_block, "") == "0.0.0.0/0" && can(regex("^igw-", try(r.gateway_id, ""))))
       ], true)
       ||
