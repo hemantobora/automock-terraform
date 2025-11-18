@@ -139,6 +139,19 @@ variable "security_group_ids" {
   default     = []
 }
 
+# ALB type toggles
+variable "enable_public_alb" {
+  description = "If true, deploy a public-facing ALB."
+  type        = bool
+  default     = true
+}
+
+variable "enable_private_alb" {
+  description = "If true, deploy a private/internal ALB."
+  type        = bool
+  default     = true
+}
+
 # Optional BYO for egress resources (only if your current module creates these)
 variable "use_existing_igw" {
   description = "If true, use an existing Internet Gateway (skip creating one)."

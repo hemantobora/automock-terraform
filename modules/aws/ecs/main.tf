@@ -49,6 +49,10 @@ locals {
 
   # IAM roles: BYO allowed (handled in iam.tf)
   use_byo_iam_roles = var.use_existing_iam_roles
+
+  # ALB toggles for conditional resource creation
+  enable_public_alb  = var.enable_public_alb
+  enable_private_alb = var.enable_private_alb
 }
 
 ##############################################
@@ -398,6 +402,7 @@ resource "aws_security_group" "ecs_tasks" {
 # ===================================================================
 
 resource "aws_lb" "main" {
+  count              = local.enable_public_alb ? 1 : 0
   name               = "${local.name_prefix}-alb"
   internal           = false
   load_balancer_type = "application"
@@ -408,6 +413,21 @@ resource "aws_lb" "main" {
   enable_deletion_protection = false
 
   tags = merge(local.common_tags, { Name = "${local.name_prefix}-alb" })
+}
+
+# Private ALB (internal)
+resource "aws_lb" "private" {
+  count              = local.enable_private_alb ? 1 : 0
+  name               = "${local.name_prefix}-private-alb"
+  internal           = true
+  load_balancer_type = "application"
+
+  security_groups = [local.alb_security_group_id_resolved]
+  subnets         = local.private_subnet_ids_resolved
+
+  enable_deletion_protection = false
+
+  tags = merge(local.common_tags, { Name = "${local.name_prefix}-private-alb" })
 }
 
 resource "aws_lb_target_group" "mockserver_api" {
@@ -435,3 +455,31 @@ resource "aws_lb_target_group" "mockserver_api" {
 
   lifecycle { create_before_destroy = true }
 }
+
+  # Private ALB target group
+  resource "aws_lb_target_group" "mockserver_api_private" {
+    count        = local.enable_private_alb ? 1 : 0
+    name         = "${local.name_prefix}-private-api-tg"
+    port         = 1080
+    protocol     = "HTTP"
+    vpc_id       = local.vpc_id_resolved
+    target_type  = "ip"
+
+    deregistration_delay = 10
+
+    health_check {
+      enabled             = true
+      healthy_threshold   = 2
+      unhealthy_threshold = 3
+      timeout             = 10
+      interval            = 30
+      path                = "/health"
+      matcher             = "200-399"
+      port                = "traffic-port"
+      protocol            = "HTTP"
+    }
+
+    tags = merge(local.common_tags, { Name = "${local.name_prefix}-private-api-tg" })
+
+    lifecycle { create_before_destroy = true }
+  }

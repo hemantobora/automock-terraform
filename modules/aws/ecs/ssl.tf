@@ -52,6 +52,19 @@ resource "aws_lb_listener" "http" {
   }
 }
 
+# Private ALB HTTP listener
+resource "aws_lb_listener" "http_private" {
+  count             = length(aws_lb.private) > 0 ? 1 : 0
+  load_balancer_arn = aws_lb.private[0].arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.mockserver_api_private[0].arn
+  }
+}
+
 # HTTPS :443 -> forward to TG (port 1080)
 resource "aws_lb_listener" "https_api" {
   load_balancer_arn = aws_lb.main.arn
@@ -63,5 +76,20 @@ resource "aws_lb_listener" "https_api" {
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.mockserver_api.arn
+  }
+}
+
+# Private ALB HTTPS listener
+resource "aws_lb_listener" "https_api_private" {
+  count             = length(aws_lb.private) > 0 ? 1 : 0
+  load_balancer_arn = aws_lb.private[0].arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = aws_acm_certificate.automock.arn
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.mockserver_api_private[0].arn
   }
 }
