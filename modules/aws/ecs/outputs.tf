@@ -43,8 +43,8 @@ output "infrastructure_summary" {
     project  = var.project_name
     region   = var.region
     endpoints = {
-      api_tls            = "https://${aws_lb.main[0].dns_name}"
-      dashboard_tls      = "https://${aws_lb.main[0].dns_name}/mockserver/dashboard"
+      api_tls            = "https://${aws_lb.main.dns_name}"
+      dashboard_tls      = "https://${aws_lb.main.dns_name}/mockserver/dashboard"
       internal_api_tls   = length(aws_lb.private) > 0 ? "https://${aws_lb.private[0].dns_name}" : "Not enabled"
     }
     compute = {
@@ -59,8 +59,8 @@ output "infrastructure_summary" {
 output "cli_integration_commands" {
   description = "CLI commands for integration and management"
   value = {
-    health_check       = "curl https://${aws_lb.main[0].dns_name}/health"
-    list_expectations  = "curl https://${aws_lb.main[0].dns_name}/mockserver/expectation"
+    health_check       = "curl https://${aws_lb.main.dns_name}/health"
+    list_expectations  = "curl https://${aws_lb.main.dns_name}/mockserver/expectation"
     view_logs          = "aws logs tail /ecs/automock/${var.project_name}/mockserver --follow --region ${var.region}"
     scale_service      = "aws ecs update-service --cluster ${aws_ecs_cluster.main.name} --service ${aws_ecs_service.mockserver.name} --desired-count <COUNT> --region ${var.region}"
   }
@@ -68,21 +68,21 @@ output "cli_integration_commands" {
 
 output "secure_mockserver_url" {
   description = "URL to access the MockServer API"
-  value       = "https://${aws_lb.main[0].dns_name}"
+  value       = "https://${aws_lb.main.dns_name}"
 }
 
 output "secure_dashboard_url" {
   description = "URL to access the MockServer Dashboard"
-  value       = "https://${aws_lb.main[0].dns_name}/mockserver/dashboard"
+  value       = "https://${aws_lb.main.dns_name}/mockserver/dashboard"
 }
 
 
 output "mockserver_url" {
   description = "URL to access the MockServer API"
-  value       = "http://${aws_lb.main[0].dns_name}"
+  value       = "http://${aws_lb.main.dns_name}"
 }
 
 output "dashboard_url" {
   description = "URL to access the MockServer Dashboard"
-  value       = "http://${aws_lb.main[0].dns_name}/mockserver/dashboard"
+  value       = "http://${aws_lb.main.dns_name}/mockserver/dashboard"
 }
