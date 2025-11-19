@@ -51,7 +51,6 @@ locals {
   use_byo_iam_roles = var.use_existing_iam_roles
 
   # ALB toggles for conditional resource creation
-  enable_public_alb  = var.enable_public_alb
   enable_private_alb = var.enable_private_alb
 }
 
@@ -402,7 +401,6 @@ resource "aws_security_group" "ecs_tasks" {
 # ===================================================================
 
 resource "aws_lb" "main" {
-  count              = local.enable_public_alb ? 1 : 0
   name               = "${local.name_prefix}-alb"
   internal           = false
   load_balancer_type = "application"

@@ -139,17 +139,10 @@ variable "security_group_ids" {
   default     = []
 }
 
-# ALB type toggles
-variable "enable_public_alb" {
-  description = "If true, deploy a public-facing ALB."
-  type        = bool
-  default     = true
-}
-
 variable "enable_private_alb" {
   description = "If true, deploy a private/internal ALB."
   type        = bool
-  default     = true
+  default     = false
 }
 
 # Optional BYO for egress resources (only if your current module creates these)
