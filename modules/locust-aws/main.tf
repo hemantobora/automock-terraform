@@ -549,4 +549,13 @@ resource "aws_ecs_service" "worker" {
     security_groups = [local.ecs_sg_id_resolved]
     assign_public_ip = true
   }
+  depends_on = [
+    aws_ecs_service.master,
+    aws_ecs_task_definition.master,
+    aws_service_discovery_service.master,
+    aws_lb_listener.http,
+    aws_lb_listener.https,
+    aws_lb_target_group.master,
+    aws_cloudwatch_log_group.master
+  ]
 }

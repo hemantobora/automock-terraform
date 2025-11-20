@@ -403,6 +403,15 @@ resource "aws_ecs_service" "mockserver" {
     container_port   = 1080
   }
 
+  dynamic "load_balancer" {
+    for_each = local.enable_private_alb ? [1] : []
+    content {
+      target_group_arn = aws_lb_target_group.mockserver_api_private[0].arn
+      container_name   = "mockserver"
+      container_port   = 1080
+    }
+  }
+
   deployment_controller {
     type = "ECS"
   }
