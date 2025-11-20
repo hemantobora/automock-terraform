@@ -42,11 +42,16 @@ output "infrastructure_summary" {
   value = {
     project  = var.project_name
     region   = var.region
-    endpoints = {
-      api_tls            = "https://${aws_lb.main.dns_name}"
-      dashboard_tls      = "https://${aws_lb.main.dns_name}/mockserver/dashboard"
-      internal_api_tls   = length(aws_lb.private) > 0 ? "https://${aws_lb.private[0].dns_name}" : "Not enabled"
+    tls_endpoints = {
+      api            = "https://${aws_lb.main.dns_name}"
+      dashboard      = "https://${aws_lb.main.dns_name}/mockserver/dashboard"
+      internal_api   = length(aws_lb.private) > 0 ? "https://${aws_lb.private[0].dns_name}" : "Not enabled"
     }
+    endpoints = {
+      api            = "http://${aws_lb.main.dns_name}"
+      dashboard      = "http://${aws_lb.main.dns_name}/mockserver/dashboard"
+      internal_api   = length(aws_lb.private) > 0 ? "http://${aws_lb.private[0].dns_name}" : "Not enabled"
+    }    
     compute = {
       instance_size  = try(var.instance_size, "")  # if not defined, empty string
       min_tasks      = var.min_tasks
