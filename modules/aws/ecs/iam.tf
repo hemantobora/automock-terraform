@@ -32,6 +32,10 @@ resource "aws_iam_role" "ecs_task_execution" {
 
   name_prefix = "${local.name_prefix}-exec-"
 
+  # Optional path and permissions boundary
+  path                  = var.iam_role_path != null ? var.iam_role_path : null
+  permissions_boundary  = var.iam_permissions_boundary != null ? var.iam_permissions_boundary : null
+
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -90,6 +94,10 @@ resource "aws_iam_role" "ecs_task" {
   count = var.use_existing_iam_roles ? 0 : 1
 
   name_prefix = "${local.name_prefix}-task-"
+
+  # Optional path and permissions boundary
+  path                  = var.iam_role_path != null ? var.iam_role_path : null
+  permissions_boundary  = var.iam_permissions_boundary != null ? var.iam_permissions_boundary : null
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
