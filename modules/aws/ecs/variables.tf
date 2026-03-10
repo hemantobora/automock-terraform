@@ -202,3 +202,16 @@ variable "iam_permissions_boundary" {
   type        = string
   default     = null
 }
+
+# ─────────────────────────────────────────────
+# Custom domain (optional)
+# When set, Terraform looks up the Route53 hosted zone for the domain,
+# creates an ACM certificate validated via DNS, and creates an A-alias
+# record  <project_name>.<custom_domain> → ALB.
+# When empty (default), the existing self-signed cert path is used.
+# ─────────────────────────────────────────────
+variable "custom_domain" {
+  description = "Base domain managed in Route53 (e.g. env.myhome.com). Leave empty to use the self-signed cert."
+  type        = string
+  default     = ""
+}

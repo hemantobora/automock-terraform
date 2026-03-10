@@ -1,26 +1,37 @@
 # terraform/modules/automock-ecs/ssl.tf
-# TLS via terraform tls -> import to ACM -> ALB listeners (80->443, 443->TG 1080)
+# TLS bifurcation:
+#   - custom_domain == "" → self-signed cert (existing behaviour, unchanged)
+#   - custom_domain != "" → ACM DNS-validated cert + Route53 A-alias record
+
+locals {
+  use_custom_domain = var.custom_domain != ""
+  use_self_signed   = !local.use_custom_domain
+
+  # Single reference point for the HTTPS listener cert ARN
+  https_cert_arn = local.use_custom_domain ? aws_acm_certificate_validation.custom[0].certificate_arn : aws_acm_certificate.self_signed[0].arn
+}
 
 ##############################
-# TLS (self-signed) -> ACM
+# PATH A — Self-signed cert
+# Active when custom_domain is empty (default)
 ##############################
 
-# Private key for self-signed cert
 resource "tls_private_key" "automock" {
+  count     = local.use_self_signed ? 1 : 0
   algorithm = "RSA"
   rsa_bits  = 2048
 }
 
-# Self-signed cert: CN = ALB DNS name (ensures ALB exists first)
 resource "tls_self_signed_cert" "automock" {
-  depends_on       = [aws_lb.main]                 # be explicit (also implied by reference)
-  private_key_pem  = tls_private_key.automock.private_key_pem
+  count           = local.use_self_signed ? 1 : 0
+  depends_on      = [aws_lb.main]
+  private_key_pem = tls_private_key.automock[0].private_key_pem
 
   subject {
-    common_name = aws_lb.main.dns_name             # e.g., *.elb.amazonaws.com
+    common_name = aws_lb.main.dns_name
   }
 
-  validity_period_hours = 24 * 365                 # 1 year
+  validity_period_hours = 24 * 365
   allowed_uses = [
     "key_encipherment",
     "digital_signature",
@@ -28,19 +39,81 @@ resource "tls_self_signed_cert" "automock" {
   ]
 }
 
-# Import the self-signed cert into ACM so ALB can use it
-resource "aws_acm_certificate" "automock" {
-  private_key      = tls_private_key.automock.private_key_pem
-  certificate_body = tls_self_signed_cert.automock.cert_pem
+resource "aws_acm_certificate" "self_signed" {
+  count            = local.use_self_signed ? 1 : 0
+  private_key      = tls_private_key.automock[0].private_key_pem
+  certificate_body = tls_self_signed_cert.automock[0].cert_pem
 
   tags = merge(local.common_tags, { Name = "${local.name_prefix}-selfsigned" })
 }
 
 ##############################
-# ALB Listeners
+# PATH B — ACM DNS-validated cert + Route53
+# Active when custom_domain is non-empty
 ##############################
 
-# Always redirect HTTP :80 -> HTTP :80
+# Look up the public hosted zone for the supplied base domain.
+data "aws_route53_zone" "custom" {
+  count        = local.use_custom_domain ? 1 : 0
+  name         = var.custom_domain
+  private_zone = false
+}
+
+# Request an ACM certificate for <project_name>.<custom_domain>
+resource "aws_acm_certificate" "custom" {
+  count             = local.use_custom_domain ? 1 : 0
+  domain_name       = "${var.project_name}.${var.custom_domain}"
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = merge(local.common_tags, { Name = "${local.name_prefix}-acm-cert" })
+}
+
+# CNAME records ACM needs to prove domain ownership
+resource "aws_route53_record" "acm_validation" {
+  for_each = local.use_custom_domain ? {
+    for dvo in aws_acm_certificate.custom[0].domain_validation_options :
+    dvo.domain_name => dvo
+  } : {}
+
+  zone_id = data.aws_route53_zone.custom[0].zone_id
+  name    = each.value.resource_record_name
+  type    = each.value.resource_record_type
+  records = [each.value.resource_record_value]
+  ttl     = 60
+}
+
+# Wait for ACM to confirm the cert is issued before the listener references it
+resource "aws_acm_certificate_validation" "custom" {
+  count                   = local.use_custom_domain ? 1 : 0
+  certificate_arn         = aws_acm_certificate.custom[0].arn
+  validation_record_fqdns = [for r in aws_route53_record.acm_validation : r.fqdn]
+}
+
+# A-alias record: <project_name>.<custom_domain> → ALB
+# Alias records are preferred over CNAMEs for ALBs (no extra DNS query charge
+# and health-check aware).
+resource "aws_route53_record" "app" {
+  count   = local.use_custom_domain ? 1 : 0
+  zone_id = data.aws_route53_zone.custom[0].zone_id
+  name    = "${var.project_name}.${var.custom_domain}"
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.main.dns_name
+    zone_id                = aws_lb.main.zone_id
+    evaluate_target_health = true
+  }
+}
+
+##############################
+# ALB Listeners (shared by both paths)
+##############################
+
+# HTTP :80 -> forward to TG (port 1080)
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
@@ -71,12 +144,17 @@ resource "aws_lb_listener" "https_api" {
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  certificate_arn   = aws_acm_certificate.automock.arn
+  certificate_arn   = local.https_cert_arn
 
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.mockserver_api.arn
   }
+
+  depends_on = [
+    aws_acm_certificate.self_signed,
+    aws_acm_certificate_validation.custom,
+  ]
 }
 
 # Private ALB HTTPS listener
@@ -86,10 +164,15 @@ resource "aws_lb_listener" "https_api_private" {
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  certificate_arn   = aws_acm_certificate.automock.arn
+  certificate_arn   = local.https_cert_arn
 
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.mockserver_api_private[0].arn
   }
+
+  depends_on = [
+    aws_acm_certificate.self_signed,
+    aws_acm_certificate_validation.custom,
+  ]
 }
