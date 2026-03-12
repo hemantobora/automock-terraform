@@ -96,3 +96,8 @@ output "dashboard_url" {
   description = "HTTP URL to access the MockServer Dashboard (raw ALB DNS)"
   value       = "http://${aws_lb.main.dns_name}/mockserver/dashboard"
 }
+
+output "hosted_zone_ns_records" {
+  description = "NS records for the newly created Route53 hosted zone. Point your registrar to these nameservers to activate the domain. Empty when create_hosted_zone = false."
+  value       = local.new_hosted_zone ? aws_route53_zone.custom[0].name_servers : []
+}

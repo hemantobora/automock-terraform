@@ -1,11 +1,19 @@
 # terraform/modules/automock-ecs/ssl.tf
 # TLS bifurcation:
 #   - custom_domain == "" → self-signed cert (existing behaviour, unchanged)
-#   - custom_domain != "" → ACM DNS-validated cert + Route53 A-alias record
+#   - custom_domain != "" + create_hosted_zone = false → look up existing R53 zone, ACM cert, A-alias
+#   - custom_domain != "" + create_hosted_zone = true  → create new R53 zone, ACM cert, A-alias
 
 locals {
-  use_custom_domain = var.custom_domain != ""
-  use_self_signed   = !local.use_custom_domain
+  use_custom_domain  = var.custom_domain != ""
+  use_self_signed    = !local.use_custom_domain
+  byo_hosted_zone    = local.use_custom_domain && !var.create_hosted_zone
+  new_hosted_zone    = local.use_custom_domain && var.create_hosted_zone
+
+  # Unified zone_id regardless of whether the zone was looked up or created
+  hosted_zone_id = local.new_hosted_zone ? aws_route53_zone.custom[0].zone_id : (
+                   local.byo_hosted_zone ? data.aws_route53_zone.custom[0].zone_id : ""
+                   )
 
   # Single reference point for the HTTPS listener cert ARN
   https_cert_arn = local.use_custom_domain ? aws_acm_certificate_validation.custom[0].certificate_arn : aws_acm_certificate.self_signed[0].arn
@@ -52,11 +60,24 @@ resource "aws_acm_certificate" "self_signed" {
 # Active when custom_domain is non-empty
 ##############################
 
-# Look up the public hosted zone for the supplied base domain.
+# ── B1: BYO zone ── look up an existing public hosted zone
 data "aws_route53_zone" "custom" {
-  count        = local.use_custom_domain ? 1 : 0
+  count        = local.byo_hosted_zone ? 1 : 0
   name         = var.custom_domain
   private_zone = false
+}
+
+# ── B2: Create zone ── provision a new public hosted zone
+# After apply, delegate NS records at your registrar to activate it.
+# force_destroy = true ensures the zone can be cleanly removed on destroy even
+# though AWS automatically places SOA + NS records in every new hosted zone
+# (those are not Terraform-managed and would otherwise cause HostedZoneNotEmpty).
+resource "aws_route53_zone" "custom" {
+  count         = local.new_hosted_zone ? 1 : 0
+  name          = var.custom_domain
+  force_destroy = true
+
+  tags = merge(local.common_tags, { Name = "${local.name_prefix}-zone" })
 }
 
 # Request an ACM certificate for <project_name>.<custom_domain>
@@ -79,7 +100,7 @@ resource "aws_route53_record" "acm_validation" {
     dvo.domain_name => dvo
   } : {}
 
-  zone_id = data.aws_route53_zone.custom[0].zone_id
+  zone_id = local.hosted_zone_id
   name    = each.value.resource_record_name
   type    = each.value.resource_record_type
   records = [each.value.resource_record_value]
@@ -98,7 +119,7 @@ resource "aws_acm_certificate_validation" "custom" {
 # and health-check aware).
 resource "aws_route53_record" "app" {
   count   = local.use_custom_domain ? 1 : 0
-  zone_id = data.aws_route53_zone.custom[0].zone_id
+  zone_id = local.hosted_zone_id
   name    = "${var.project_name}.${var.custom_domain}"
   type    = "A"
 

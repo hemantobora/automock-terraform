@@ -215,3 +215,9 @@ variable "custom_domain" {
   type        = string
   default     = ""
 }
+
+variable "create_hosted_zone" {
+  description = "If true, Terraform creates a new Route53 public hosted zone for custom_domain. If false (default), the zone must already exist and will be looked up. Only evaluated when custom_domain is non-empty."
+  type        = bool
+  default     = false
+}
