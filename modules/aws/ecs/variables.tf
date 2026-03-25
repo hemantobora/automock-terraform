@@ -221,3 +221,14 @@ variable "create_hosted_zone" {
   type        = bool
   default     = false
 }
+
+# ─────────────────────────────────────────────
+# ALB ingress CIDR restrictions (optional)
+# Default: open to the internet (0.0.0.0/0).
+# Set to a specific CIDR (e.g. ["1.2.3.4/32"]) to restrict access.
+# ─────────────────────────────────────────────
+variable "alb_ingress_cidr_blocks" {
+  description = "IPv4 CIDR blocks allowed to reach the ALB on port 80 and 443. Default: open to all."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
