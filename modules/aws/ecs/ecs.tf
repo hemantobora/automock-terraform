@@ -457,21 +457,21 @@ resource "aws_appautoscaling_policy" "cpu_step_scaling" {
     cooldown               = 60
     metric_aggregation_type = "Average"
 
-    # 70-80% CPU: Add 50% more tasks
+    # 85-95% CPU: Add 50% more tasks
     step_adjustment {
       metric_interval_lower_bound = 0
       metric_interval_upper_bound = 10
       scaling_adjustment          = 50
     }
 
-    # 80-90% CPU: Add 100% more tasks
+    # 95-100% CPU: Add 100% more tasks
     step_adjustment {
       metric_interval_lower_bound = 10
       metric_interval_upper_bound = 20
       scaling_adjustment          = 100
     }
 
-    # 90%+ CPU: Add 200% more tasks
+    # 100%+ CPU: Add 200% more tasks
     step_adjustment {
       metric_interval_lower_bound = 20
       scaling_adjustment          = 200
@@ -484,12 +484,13 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
   alarm_name          = "${local.name_prefix}-cpu-high"
   comparison_operator = "GreaterThanOrEqualToThreshold"
   evaluation_periods  = "2"
+  datapoints_to_alarm = "2"
   metric_name         = "CPUUtilization"
   namespace           = "AWS/ECS"
   period              = "60"
   statistic           = "Average"
-  threshold           = "70"
-  alarm_description   = "Triggers step scaling when CPU >= 70%"
+  threshold           = "85"
+  alarm_description   = "Triggers step scaling when CPU >= 85% for 2 consecutive minutes"
   alarm_actions       = [aws_appautoscaling_policy.cpu_step_scaling.arn]
 
   dimensions = {
@@ -513,18 +514,21 @@ resource "aws_appautoscaling_policy" "memory_step_scaling" {
     cooldown               = 60
     metric_aggregation_type = "Average"
 
+    # 85-95% memory: Add 50% more tasks
     step_adjustment {
       metric_interval_lower_bound = 0
       metric_interval_upper_bound = 10
       scaling_adjustment          = 50
     }
 
+    # 95-100% memory: Add 100% more tasks
     step_adjustment {
       metric_interval_lower_bound = 10
       metric_interval_upper_bound = 20
       scaling_adjustment          = 100
     }
 
+    # 100%+ memory: Add 200% more tasks
     step_adjustment {
       metric_interval_lower_bound = 20
       scaling_adjustment          = 200
@@ -537,12 +541,13 @@ resource "aws_cloudwatch_metric_alarm" "memory_high" {
   alarm_name          = "${local.name_prefix}-memory-high"
   comparison_operator = "GreaterThanOrEqualToThreshold"
   evaluation_periods  = "2"
+  datapoints_to_alarm = "2"
   metric_name         = "MemoryUtilization"
   namespace           = "AWS/ECS"
   period              = "60"
   statistic           = "Average"
-  threshold           = "70"
-  alarm_description   = "Triggers step scaling when memory >= 70%"
+  threshold           = "85"
+  alarm_description   = "Triggers step scaling when memory >= 85% for 2 consecutive minutes"
   alarm_actions       = [aws_appautoscaling_policy.memory_step_scaling.arn]
 
   dimensions = {
@@ -566,16 +571,16 @@ resource "aws_appautoscaling_policy" "request_step_scaling" {
     cooldown               = 60
     metric_aggregation_type = "Average"
 
-    # 500-1000 req/min per task: Add 50%
+    # 3000-6000 req/min per task: Add 50%
     step_adjustment {
       metric_interval_lower_bound = 0
-      metric_interval_upper_bound = 500
+      metric_interval_upper_bound = 3000
       scaling_adjustment          = 50
     }
 
-    # 1000+ req/min per task: Add 100%
+    # 6000+ req/min per task: Add 100%
     step_adjustment {
-      metric_interval_lower_bound = 500
+      metric_interval_lower_bound = 3000
       scaling_adjustment          = 100
     }
   }
@@ -586,12 +591,13 @@ resource "aws_cloudwatch_metric_alarm" "requests_high" {
   alarm_name          = "${local.name_prefix}-requests-high"
   comparison_operator = "GreaterThanOrEqualToThreshold"
   evaluation_periods  = "2"
+  datapoints_to_alarm = "2"
   metric_name         = "RequestCountPerTarget"
   namespace           = "AWS/ApplicationELB"
   period              = "60"
   statistic           = "Sum"
-  threshold           = "500"
-  alarm_description   = "Triggers step scaling when requests >= 500/min per target"
+  threshold           = "3000"
+  alarm_description   = "Triggers step scaling when requests >= 3000/min per target for 2 consecutive minutes"
   alarm_actions       = [aws_appautoscaling_policy.request_step_scaling.arn]
 
   dimensions = {
@@ -615,10 +621,10 @@ resource "aws_appautoscaling_policy" "scale_down" {
     cooldown               = 300 # 5 min cooldown
     metric_aggregation_type = "Average"
 
-    # Remove 25% of tasks when low
+    # Remove 33% of tasks when low
     step_adjustment {
       metric_interval_upper_bound = 0
-      scaling_adjustment          = -25
+      scaling_adjustment          = -33
     }
   }
 }

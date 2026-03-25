@@ -71,7 +71,7 @@ output "cli_integration_commands" {
   description = "CLI commands for integration and management"
   value = {
     health_check      = "curl ${local._base_url}/health"
-    list_expectations = "curl ${local._base_url}/mockserver/expectation"
+    list_expectations = "curl -X PUT ${local._base_url}/mockserver/retrieve?type=active_expectations -d '{}'"
     view_logs         = "aws logs tail /ecs/automock/${var.project_name}/mockserver --follow --region ${var.region}"
     scale_service     = "aws ecs update-service --cluster ${aws_ecs_cluster.main.name} --service ${aws_ecs_service.mockserver.name} --desired-count <COUNT> --region ${var.region}"
   }

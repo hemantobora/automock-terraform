@@ -9,14 +9,20 @@ locals {
   use_self_signed    = !local.use_custom_domain
   byo_hosted_zone    = local.use_custom_domain && !var.create_hosted_zone
   new_hosted_zone    = local.use_custom_domain && var.create_hosted_zone
+  has_private_alb    = var.enable_private_alb
 
   # Unified zone_id regardless of whether the zone was looked up or created
   hosted_zone_id = local.new_hosted_zone ? aws_route53_zone.custom[0].zone_id : (
                    local.byo_hosted_zone ? data.aws_route53_zone.custom[0].zone_id : ""
                    )
 
-  # Single reference point for the HTTPS listener cert ARN
+  # Public ALB — ACM cert (custom domain) or self-signed
   https_cert_arn = local.use_custom_domain ? aws_acm_certificate_validation.custom[0].certificate_arn : aws_acm_certificate.self_signed[0].arn
+
+  # Private ALB always gets its own self-signed cert keyed to its DNS name.
+  # The ACM cert covers only <project>.<custom_domain> and cannot be used for
+  # the internal ALB's *.elb.amazonaws.com hostname — this avoids a CN mismatch.
+  private_https_cert_arn = local.has_private_alb ? aws_acm_certificate.private_self_signed[0].arn : ""
 }
 
 ##############################
@@ -39,6 +45,14 @@ resource "tls_self_signed_cert" "automock" {
     common_name = aws_lb.main.dns_name
   }
 
+  # Cover both ALBs as SANs so the cert is valid regardless of which ALB
+  # the client connects to. Without this, the private ALB's different DNS
+  # name would cause a hostname mismatch TLS error.
+  dns_names = compact([
+    aws_lb.main.dns_name,
+    length(aws_lb.private) > 0 ? aws_lb.private[0].dns_name : "",
+  ])
+
   validity_period_hours = 24 * 365
   allowed_uses = [
     "key_encipherment",
@@ -53,6 +67,46 @@ resource "aws_acm_certificate" "self_signed" {
   certificate_body = tls_self_signed_cert.automock[0].cert_pem
 
   tags = merge(local.common_tags, { Name = "${local.name_prefix}-selfsigned" })
+}
+
+##############################
+# Private ALB — dedicated self-signed cert
+# Active whenever enable_private_alb = true, regardless of which public cert
+# path is used. The ACM cert covers only <project>.<custom_domain> and cannot
+# satisfy TLS for the internal ALB's *.elb.amazonaws.com hostname.
+##############################
+
+resource "tls_private_key" "private_alb" {
+  count     = local.has_private_alb ? 1 : 0
+  algorithm = "RSA"
+  rsa_bits  = 2048
+}
+
+resource "tls_self_signed_cert" "private_alb" {
+  count           = local.has_private_alb ? 1 : 0
+  depends_on      = [aws_lb.private]
+  private_key_pem = tls_private_key.private_alb[0].private_key_pem
+
+  subject {
+    common_name = aws_lb.private[0].dns_name
+  }
+
+  dns_names = [aws_lb.private[0].dns_name]
+
+  validity_period_hours = 24 * 365
+  allowed_uses = [
+    "key_encipherment",
+    "digital_signature",
+    "server_auth",
+  ]
+}
+
+resource "aws_acm_certificate" "private_self_signed" {
+  count            = local.has_private_alb ? 1 : 0
+  private_key      = tls_private_key.private_alb[0].private_key_pem
+  certificate_body = tls_self_signed_cert.private_alb[0].cert_pem
+
+  tags = merge(local.common_tags, { Name = "${local.name_prefix}-private-selfsigned" })
 }
 
 ##############################
@@ -179,21 +233,21 @@ resource "aws_lb_listener" "https_api" {
 }
 
 # Private ALB HTTPS listener
+# Uses its own self-signed cert (CN = private ALB DNS name) so TLS works
+# correctly for internal clients (e.g. Locust) regardless of whether the
+# public ALB uses a custom domain ACM cert or the shared self-signed cert.
 resource "aws_lb_listener" "https_api_private" {
   count             = length(aws_lb.private) > 0 ? 1 : 0
   load_balancer_arn = aws_lb.private[0].arn
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  certificate_arn   = local.https_cert_arn
+  certificate_arn   = local.private_https_cert_arn
 
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.mockserver_api_private[0].arn
   }
 
-  depends_on = [
-    aws_acm_certificate.self_signed,
-    aws_acm_certificate_validation.custom,
-  ]
+  depends_on = [aws_acm_certificate.private_self_signed]
 }
