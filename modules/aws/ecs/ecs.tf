@@ -457,24 +457,17 @@ resource "aws_appautoscaling_policy" "cpu_step_scaling" {
     cooldown               = 60
     metric_aggregation_type = "Average"
 
-    # 85-95% CPU: Add 50% more tasks
+    # 85-100% CPU: Add 50% more tasks
     step_adjustment {
       metric_interval_lower_bound = 0
-      metric_interval_upper_bound = 10
+      metric_interval_upper_bound = 15
       scaling_adjustment          = 50
     }
 
-    # 95-100% CPU: Add 100% more tasks
+    # 100%+ CPU: Add 100% more tasks (safety net)
     step_adjustment {
-      metric_interval_lower_bound = 10
-      metric_interval_upper_bound = 20
+      metric_interval_lower_bound = 15
       scaling_adjustment          = 100
-    }
-
-    # 100%+ CPU: Add 200% more tasks
-    step_adjustment {
-      metric_interval_lower_bound = 20
-      scaling_adjustment          = 200
     }
   }
 }
@@ -514,24 +507,17 @@ resource "aws_appautoscaling_policy" "memory_step_scaling" {
     cooldown               = 60
     metric_aggregation_type = "Average"
 
-    # 85-95% memory: Add 50% more tasks
+    # 85-100% memory: Add 50% more tasks
     step_adjustment {
       metric_interval_lower_bound = 0
-      metric_interval_upper_bound = 10
+      metric_interval_upper_bound = 15
       scaling_adjustment          = 50
     }
 
-    # 95-100% memory: Add 100% more tasks
+    # 100%+ memory: Add 100% more tasks (safety net)
     step_adjustment {
-      metric_interval_lower_bound = 10
-      metric_interval_upper_bound = 20
+      metric_interval_lower_bound = 15
       scaling_adjustment          = 100
-    }
-
-    # 100%+ memory: Add 200% more tasks
-    step_adjustment {
-      metric_interval_lower_bound = 20
-      scaling_adjustment          = 200
     }
   }
 }
