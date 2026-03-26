@@ -1,0 +1,7 @@
+# Ensure shell scripts and Terraform files always use LF line endings.
+# This prevents CRLF-in-heredoc issues when Windows users run terraform apply.
+* text=auto
+*.tf   text eol=lf
+*.tfvars text eol=lf
+*.sh   text eol=lf
+*.bash text eol=lf

@@ -120,7 +120,7 @@ resource "aws_ecs_task_definition" "mockserver" {
     entryPoint = ["/bin/bash", "-c"]
 
     command = [
-      <<-EOF
+      replace(<<-EOF
       #!/usr/bin/env bash
       set -euo pipefail
 
@@ -356,6 +356,7 @@ resource "aws_ecs_task_definition" "mockserver" {
         fi
       done
       EOF
+      , "\r", "")
     ]
 
     environment = [
