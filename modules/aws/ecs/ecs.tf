@@ -162,7 +162,17 @@ resource "aws_ecs_task_definition" "mockserver" {
         del(.description)
         |
         if ((.httpResponse|type)=="object")
-          and ( (.httpResponse.body? // null) | tostring | contains("$!") )
+          and (
+            # Case A: body is a raw string (from GenerateResponseTemplate) containing $!
+            ( (.httpResponse.body? // null) | (type == "string") and contains("$!") )
+            or
+            # Case B: body is a wrapped object (type != STRING) containing $!
+            (
+              ( (.httpResponse.body? // null) | (type == "object") )
+              and ( (.httpResponse.body.type? // "") != "STRING" )
+              and ( (.httpResponse.body? // null) | tostring | contains("$!") )
+            )
+          )
         then
           (
             {
