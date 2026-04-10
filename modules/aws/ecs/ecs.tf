@@ -61,7 +61,7 @@ resource "aws_ecs_task_definition" "mockserver" {
   # MockServer - NO HEALTH CHECK
   {
     name      = "mockserver"
-    image     = "mockserver/mockserver:latest"
+    image     = "mockserver/mockserver:5.11.2"
     essential = true
 
     portMappings = [
